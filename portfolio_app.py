@@ -14,7 +14,76 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 import yfinance as yf
+
+# ----------------------
+# Responsive Helpers
+# ----------------------
+def get_view_param() -> str:
+    """
+    Read the ?view= URL parameter robustly.
+    Returns 'mobile', 'desktop', or None if not set.
+    """
+    try:
+        # Try new API first (Streamlit >= 1.30)
+        params = st.query_params
+        return params.get("view", None)
+    except AttributeError:
+        # Fallback to experimental API
+        try:
+            params = st.experimental_get_query_params()
+            view_list = params.get("view", [])
+            return view_list[0] if view_list else None
+        except Exception:
+            return None
+
+
+def set_view_param(view: str):
+    """
+    Set the ?view= URL parameter and rerun.
+    """
+    try:
+        # Try new API first
+        st.query_params["view"] = view
+    except AttributeError:
+        # Fallback to experimental API
+        try:
+            st.experimental_set_query_params(view=view)
+        except Exception:
+            pass
+    st.rerun()
+
+
+def detect_viewport_width():
+    """
+    Use JavaScript to detect viewport width on first load.
+    If no view param is set, auto-detect and set it based on width.
+    """
+    current_view = get_view_param()
+
+    if current_view is None:
+        # No view param set - run detection
+        detection_html = """
+        <script>
+        (function() {
+            const width = window.innerWidth;
+            const viewMode = width <= 1024 ? 'mobile' : 'desktop';
+            const url = new URL(window.location.href);
+
+            // Only set if not already present
+            if (!url.searchParams.has('view')) {
+                url.searchParams.set('view', viewMode);
+                window.location.replace(url.toString());
+            }
+        })();
+        </script>
+        """
+        components.html(detection_html, height=0)
+        return None  # Will reload after JS sets the param
+
+    return current_view
+
 
 # ----------------------
 # Configuration
@@ -26,22 +95,66 @@ st.set_page_config(
     initial_sidebar_state="collapsed",  # nicer on mobile
 )
 
-# Global CSS: slightly smaller fonts on narrow screens, responsive tables
+# Run viewport detection (must happen early)
+VIEW_MODE = detect_viewport_width()
+
+# If VIEW_MODE is None, detection is running and page will reload
+if VIEW_MODE is None:
+    st.stop()
+
+IS_MOBILE = (VIEW_MODE == "mobile")
+
+# Global CSS: responsive layout with mobile-first approach
 st.markdown(
     """
 <style>
-/* tighten paddings */
-.block-container { padding-top: 1rem; padding-bottom: 2rem; }
+/* Base styles */
+.block-container {
+    padding-top: 1rem;
+    padding-bottom: 2rem;
+    max-width: 100%;
+}
 [data-testid="stMetricValue"] { font-size: 1.1rem; }
 [data-testid="stMetricDelta"] { font-size: 0.9rem; }
-/* tables scale down a bit on phones */
 table { width: 100%; }
-@media (max-width: 768px) {
-  .block-container { padding-left: 0.6rem; padding-right: 0.6rem; }
+
+/* View mode toggle styles */
+.view-toggle-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 1rem 0;
+    gap: 0.5rem;
+}
+
+/* Mobile optimizations (≤ 1024px) */
+@media (max-width: 1024px) {
+  .block-container {
+    padding-left: 0.6rem;
+    padding-right: 0.6rem;
+    padding-top: 0.5rem;
+  }
   [data-testid="stMetricValue"] { font-size: 1rem; }
   [data-testid="stMetricDelta"] { font-size: 0.85rem; }
   .stPlotlyChart { height: auto !important; }
   table { font-size: 0.85rem; }
+
+  /* Improve touch targets */
+  button { min-height: 44px; }
+  [data-testid="stSelectbox"] { font-size: 0.9rem; }
+}
+
+/* Tablet (768px - 1024px) */
+@media (min-width: 768px) and (max-width: 1024px) {
+  .block-container { padding-left: 1rem; padding-right: 1rem; }
+}
+
+/* Desktop (> 1024px) */
+@media (min-width: 1025px) {
+  .block-container {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
 }
 </style>
 """,
@@ -321,23 +434,38 @@ def beta_corr(port_r: pd.Series, bench_r: pd.Series) -> Tuple[float, float]:
 st.title("📊 Zorroh Portfolio Analyzer")
 st.caption("Build and analyze diversified ETF portfolios vs a benchmark")
 
+# Prominent view mode toggle at the top
+col_left, col_toggle, col_right = st.columns([1, 2, 1])
+with col_toggle:
+    st.markdown('<div class="view-toggle-container">', unsafe_allow_html=True)
+
+    # Create a segmented control using radio buttons
+    view_choice = st.radio(
+        "View Mode",
+        options=["📱 Mobile", "🖥️ Desktop"],
+        index=0 if IS_MOBILE else 1,
+        horizontal=True,
+        key="view_toggle",
+        label_visibility="collapsed",
+    )
+
+    # Update URL param if changed
+    new_view = "mobile" if "Mobile" in view_choice else "desktop"
+    if new_view != VIEW_MODE:
+        set_view_param(new_view)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
 # Hint about cache/parquet
 if Path("data/prices.parquet").exists():
     st.caption("⚡ Using precomputed data from `data/prices.parquet`. A nightly job can keep this fresh.")
 else:
     st.caption("⏳ No precomputed parquet found; will fetch live data for selected tickers.")
 
-# 👉 Display controls (mobile optimization)
-st.sidebar.header("Display")
-compact = st.sidebar.toggle(
-    "📱 Compact (mobile) mode",
-    value=False,
-    help="Stacks layouts, shrinks chart heights & fonts for phones.",
-)
-
 
 def H(desktop: int, mobile: int) -> int:
-    return mobile if compact else desktop
+    """Helper to return responsive heights based on current view mode."""
+    return mobile if IS_MOBILE else desktop
 
 
 # ----------------------
@@ -512,43 +640,70 @@ vol_fig.update_layout(
 )
 st.plotly_chart(vol_fig, use_container_width=True)
 
-# 3) Key Statistics (stack on mobile)
+# 3) Key Statistics (responsive layout)
 st.subheader("📋 Performance Statistics")
-if compact:
-    cols = [st.container()]
-else:
-    cols = st.columns(3)
 
-with cols[0]:
+if IS_MOBILE:
+    # Mobile: stack all metrics in single column
     st.markdown("**Portfolio**")
-    st.metric("CAGR", f"{port_stats['CAGR']:.2%}")
-    st.metric("Ann. Vol", f"{port_stats['Ann. Vol']:.2%}")
-    st.metric("Sharpe Ratio", f"{port_stats['Sharpe']:.2f}")
-    st.metric("Max Drawdown", f"{port_stats['Max DD']:.2%}")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("CAGR", f"{port_stats['CAGR']:.2%}")
+        st.metric("Sharpe Ratio", f"{port_stats['Sharpe']:.2f}")
+    with col2:
+        st.metric("Ann. Vol", f"{port_stats['Ann. Vol']:.2%}")
+        st.metric("Max Drawdown", f"{port_stats['Max DD']:.2%}")
 
-if not compact:
-    c2, c3 = cols[1], cols[2]
-else:
-    c2 = st.container()
-    c3 = st.container()
-
-with c2:
     st.markdown(f"**Benchmark ({benchmark})**")
-    st.metric("CAGR", f"{bench_stats['CAGR']:.2%}")
-    st.metric("Ann. Vol", f"{bench_stats['Ann. Vol']:.2%}")
-    st.metric("Sharpe Ratio", f"{bench_stats['Sharpe']:.2f}")
-    st.metric("Max Drawdown", f"{bench_stats['Max DD']:.2%}")
+    col3, col4 = st.columns(2)
+    with col3:
+        st.metric("CAGR", f"{bench_stats['CAGR']:.2%}")
+        st.metric("Sharpe Ratio", f"{bench_stats['Sharpe']:.2f}")
+    with col4:
+        st.metric("Ann. Vol", f"{bench_stats['Ann. Vol']:.2%}")
+        st.metric("Max Drawdown", f"{bench_stats['Max DD']:.2%}")
 
-with c3:
     st.markdown("**Active (vs Benchmark)**")
-    st.metric("Tracking Error", f"{te:.2%}")
-    st.metric("Information Ratio", f"{ir:.2f}")
-    st.metric("Beta", f"{beta:.2f}")
-    st.metric("Correlation", f"{corr_coef:.2f}")
+    col5, col6 = st.columns(2)
+    with col5:
+        st.metric("Tracking Error", f"{te:.2%}")
+        st.metric("Beta", f"{beta:.2f}")
+    with col6:
+        st.metric("Information Ratio", f"{ir:.2f}")
+        st.metric("Correlation", f"{corr_coef:.2f}")
+
+else:
+    # Desktop: three columns side by side
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.markdown("**Portfolio**")
+        st.metric("CAGR", f"{port_stats['CAGR']:.2%}")
+        st.metric("Ann. Vol", f"{port_stats['Ann. Vol']:.2%}")
+        st.metric("Sharpe Ratio", f"{port_stats['Sharpe']:.2f}")
+        st.metric("Max Drawdown", f"{port_stats['Max DD']:.2%}")
+
+    with col2:
+        st.markdown(f"**Benchmark ({benchmark})**")
+        st.metric("CAGR", f"{bench_stats['CAGR']:.2%}")
+        st.metric("Ann. Vol", f"{bench_stats['Ann. Vol']:.2%}")
+        st.metric("Sharpe Ratio", f"{bench_stats['Sharpe']:.2f}")
+        st.metric("Max Drawdown", f"{bench_stats['Max DD']:.2%}")
+
+    with col3:
+        st.markdown("**Active (vs Benchmark)**")
+        st.metric("Tracking Error", f"{te:.2%}")
+        st.metric("Information Ratio", f"{ir:.2f}")
+        st.metric("Beta", f"{beta:.2f}")
+        st.metric("Correlation", f"{corr_coef:.2f}")
 
 # 4) Correlation Matrix
 st.subheader("🔗 Correlation Matrix (daily returns)")
-c1, c2 = st.columns(2) if not compact else (st.container(), st.container())
+if IS_MOBILE:
+    c1 = st.container()
+    c2 = st.container()
+else:
+    c1, c2 = st.columns(2)
 window_choice = c1.selectbox("Window", ["Full period", "1Y (252d)", "3Y (756d)"], index=1)
 include_bench = c2.checkbox("Include benchmark in matrix", value=True)
 corr_tickers = holdings_available.copy()
@@ -601,7 +756,13 @@ if rets.shape[1] >= 2 and not rets.empty:
     )
     st.plotly_chart(heat, use_container_width=True)
     st.caption(f"As of {rets.index[-1].date()} — window: **{window_choice}**")
-    st.dataframe(corr, use_container_width=True)
+
+    # Mobile: show correlation table in expander to save space
+    if IS_MOBILE and len(corr) > 5:
+        with st.expander("📊 View Correlation Table", expanded=False):
+            st.dataframe(corr, use_container_width=True)
+    else:
+        st.dataframe(corr, use_container_width=True)
 else:
     st.info("Need at least two series with overlapping data to compute correlation.")
 
@@ -626,9 +787,9 @@ dd_fig.update_layout(
 )
 st.plotly_chart(dd_fig, use_container_width=True)
 
-# 6) Allocation (stack on mobile)
+# 6) Allocation (responsive layout)
 st.subheader("🥧 Portfolio Allocation")
-if compact:
+if IS_MOBILE:
     col_pie = st.container()
     col_table = st.container()
 else:
@@ -737,7 +898,9 @@ ETF_CATALOG = {
     "XLV": ("Health Care Select Sector SPDR Fund", "https://www.ssga.com/us/en/etfs/funds/the-health-care-select-sector-spdr-fund-xlv"),
     "XLY": ("Consumer Discretionary Select Sector SPDR Fund", "https://www.ssga.com/us/en/etfs/funds/the-consumer-discretionary-select-sector-spdr-fund-xly"),
 }
-def render_etf_catalog(etf_map: dict):
+
+def render_etf_catalog(etf_map: dict, is_mobile: bool = False):
+    """Render ETF catalog with mobile optimization."""
     rows = []
     for t, (name, url) in etf_map.items():
         label = f"[{name}]({url})" if url else name
@@ -746,8 +909,15 @@ def render_etf_catalog(etf_map: dict):
     md = "| Ticker | Name / Page |\n|---|---|\n"
     for _, r in df.iterrows():
         md += f"| {r['Ticker']} | {r['Name / Page']} |\n"
-    st.markdown(md, unsafe_allow_html=True)
-render_etf_catalog(ETF_CATALOG)
+
+    # On mobile, show in collapsible expander to save space
+    if is_mobile:
+        with st.expander("📖 View Full ETF Catalog", expanded=False):
+            st.markdown(md, unsafe_allow_html=True)
+    else:
+        st.markdown(md, unsafe_allow_html=True)
+
+render_etf_catalog(ETF_CATALOG, is_mobile=IS_MOBILE)
 
 # ----------------------
 # Footer
