@@ -4,4 +4,4 @@ pandas
 numpy
 plotly
 pyarrow
-python-dotenv
+python-dateutil
