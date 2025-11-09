@@ -2,40 +2,42 @@ name: Nightly Data Refresh
 
 on:
   schedule:
-    # Every day at 3:30 AM Dubai time (23:30 UTC)
-    - cron: "30 23 * * *"
-  workflow_dispatch:  # allows manual runs
+    - cron: '0 2 * * *'   # 02:00 UTC daily
+  workflow_dispatch:
+
+permissions:
+  contents: write   # << allow push
 
 jobs:
   refresh:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0       # so we can push back to main
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Install deps
         run: |
-          python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install pyarrow fastparquet || true
 
-      - name: Build latest prices parquet
-        run: |
-          python build_prices.py
+      - name: Build parquet
+        run: python build_prices.py   # (you already fixed the path)
 
-      - name: Commit and push updated parquet
+      - name: Commit & push if changed
         run: |
-          git config --global user.email "action@github.com"
-          git config --global user.name "GitHub Action"
-          git add data/prices.parquet
-          git commit -m "update nightly prices parquet [skip ci]" || echo "No changes to commit"
-          git push
-
-      - name: Ping live Streamlit app
-        run: |
-          curl -sS -L "https://zorroh-portfolio-analyzer.streamlit.app" >/dev/null || true
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name  "github-actions[bot]"
+          git add -A data/prices.parquet
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: update nightly prices parquet [skip ci]"
+            git push
+          fi
