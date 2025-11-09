@@ -26,7 +26,7 @@ jobs:
 
       - name: Build latest prices parquet
         run: |
-          python scripts/build_prices.py
+          python build_prices.py
 
       - name: Commit and push updated parquet
         run: |
