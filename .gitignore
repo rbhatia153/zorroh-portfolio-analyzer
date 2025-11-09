@@ -1,4 +1,11 @@
-.venv/
-.venv/
+# OS / IDE
+.DS_Store
+.idea/
+
+# Python
 __pycache__/
-data/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
