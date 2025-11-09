@@ -501,7 +501,7 @@ ETF_CATALOG = {
     "SPY": ("SPDR S&P 500 ETF Trust", "https://www.ssga.com/us/en/intermediary/etfs/spdr-sp-500-etf-trust-spy"),
     "QQQ": ("Invesco QQQ Trust", "https://www.invesco.com/us/financial-products/etfs/product-detail?productId=QQQ"),
     "IWM": ("iShares Russell 2000 ETF", "https://www.ishares.com/us/products/239710/iwm-ishares-russell-2000-etf"),
-    "EFA": ("iShares MSCI EAFE ETF", "https://www.ishares.com/us/products/239612/efa-ishares-msci-eafe-etf"),
+    "EFA": ("iShares MSCI EAFE ETF", "https://www.blackrock.com/ae/intermediaries/products/239623/ishares-msci-eafe-etf"),
     "EEM": ("iShares MSCI Emerging Markets ETF", "https://www.ishares.com/us/products/239637/eem-ishares-msci-emerging-markets-etf"),
     "AGG": ("iShares Core U.S. Aggregate Bond ETF", "https://www.ishares.com/us/products/239458/ishares-core-us-aggregate-bond-etf"),
     "BND": ("Vanguard Total Bond Market ETF", "https://investor.vanguard.com/investment-products/etfs/profile/bnd"),
