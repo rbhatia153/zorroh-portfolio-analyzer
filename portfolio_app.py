@@ -1,18 +1,12 @@
 """
-📊 Zorroh Portfolio Analyzer — Mobile-optimized
+📊 Zorroh Portfolio Analyzer — Mobile-optimized (stable)
 ETF portfolio construction and analysis tool for teaching diversification.
-
-REQUIREMENTS:
-- streamlit>=1.37.0
-- yfinance>=0.2.50
-- pandas>=2.2.0
-- numpy>=1.26.0
-- plotly>=5.22.0
 
 Run: streamlit run portfolio_app.py
 """
 
 import datetime as dt
+from pathlib import Path
 from typing import List, Tuple, Dict
 
 import numpy as np
@@ -29,11 +23,12 @@ st.set_page_config(
     page_title="Zorroh Portfolio Analyzer",
     layout="wide",
     page_icon="📊",
-    initial_sidebar_state="collapsed"  # nicer on mobile
+    initial_sidebar_state="collapsed",  # nicer on mobile
 )
 
 # Global CSS: slightly smaller fonts on narrow screens, responsive tables
-st.markdown("""
+st.markdown(
+    """
 <style>
 /* tighten paddings */
 .block-container { padding-top: 1rem; padding-bottom: 2rem; }
@@ -49,19 +44,21 @@ table { width: 100%; }
   table { font-size: 0.85rem; }
 }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 ETF_UNIVERSE = [
     "SPY", "QQQ", "IWM", "EFA", "EEM", "AGG", "BND", "LQD", "HYG", "TLT",
     "IEF", "GLD", "SLV", "DBC", "VNQ", "XLB", "XLE", "XLF", "XLI", "XLK",
-    "XLP", "XLRE", "XLU", "XLV", "XLY"
+    "XLP", "XLRE", "XLU", "XLV", "XLY",
 ]
 
 REBALANCE_OPTIONS = {
     "Buy & Hold (No Rebalance)": None,
     "Monthly": "M",
     "Quarterly": "Q",
-    "Annual": "Y"
+    "Annual": "Y",
 }
 
 DEFAULT_HOLDINGS = ["SPY", "EFA", "AGG", "VNQ", "GLD"]
@@ -69,35 +66,138 @@ DEFAULT_WEIGHTS = [40, 20, 25, 10, 5]
 DEFAULT_BENCHMARK = "SPY"
 
 # ----------------------
-# Helper Functions
+# Robust price loading
 # ----------------------
-@st.cache_data(show_spinner=False, ttl=3600)
+@st.cache_data(show_spinner=False, ttl=6 * 3600)
 def load_prices(tickers: List[str], start: dt.date, end: dt.date) -> pd.DataFrame:
-    """Load adjusted close prices from Yahoo Finance."""
+    """
+    Robust loader:
+    1) Try to read precomputed parquet at data/prices.parquet (fast)
+    2) For any missing tickers or dates, fetch just those with yfinance
+    3) Return a 2D DataFrame with columns exactly = requested tickers
+    """
     if not tickers:
         return pd.DataFrame()
-    try:
-        data = yf.download(
-            tickers, start=start, end=end,
-            interval="1d", auto_adjust=True, progress=False
-        )
-        if data.empty:
-            return pd.DataFrame()
-        if len(tickers) == 1:
-            if isinstance(data, pd.Series):
-                prices = data.to_frame(name=tickers[0])
-            else:
-                prices = data[['Close']].copy()
-                prices.columns = [tickers[0]]
-        else:
-            prices = data['Close'].copy() if isinstance(data.columns, pd.MultiIndex) else data
-        return prices.dropna(how='all')
-    except Exception as e:
-        st.error(f"Error loading prices: {e}")
+
+    # Guard weird ranges
+    if isinstance(start, dt.date) and isinstance(end, dt.date) and start > end:
+        start, end = end, start  # swap
+
+    want = sorted(set(tickers))
+    cached = _try_read_cached_prices()
+
+    pieces = []
+    covered = set()
+
+    if cached is not None:
+        c = cached.copy()
+        c = c.loc[
+            (c.index >= pd.Timestamp(start)) & (c.index <= pd.Timestamp(end))
+        ]
+        c = _sanitize_columns(c)
+        have = [t for t in want if t in c.columns]
+        if have:
+            pieces.append(c[have])
+            covered.update(have)
+
+    missing = [t for t in want if t not in covered]
+    if missing:
+        try:
+            df = yf.download(
+                missing,
+                start=start,
+                end=end,
+                interval="1d",
+                auto_adjust=True,
+                progress=False,
+            )
+            fetched = _yf_to_wide(df, missing)
+            if not fetched.empty:
+                pieces.append(fetched)
+        except Exception as e:
+            st.warning(f"Live fetch failed for {missing}: {e}")
+
+    if not pieces:
         return pd.DataFrame()
 
+    out = pd.concat(pieces, axis=1)
+    out = _sanitize_columns(out)
+    out = out.reindex(columns=want)
+    out = out.dropna(how="all")
+    return out
+
+
+def _try_read_cached_prices() -> pd.DataFrame | None:
+    """
+    Look for data/prices.parquet built by your nightly job.
+    Return None if missing or unreadable.
+    """
+    p = Path("data") / "prices.parquet"
+    if not p.exists():
+        return None
+    try:
+        df = pd.read_parquet(p)
+        if not isinstance(df.index, pd.DatetimeIndex):
+            df.index = pd.to_datetime(df.index)
+        return df.sort_index()
+    except Exception:
+        return None
+
+
+def _sanitize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Normalize columns to plain tickers:
+    - If multi-index like ('Close','SPY'), keep 'SPY'
+    - If 'SPY Close' strings, strip the trailing field name
+    """
+    if isinstance(df.columns, pd.MultiIndex):
+        if "Close" in df.columns.levels[0]:
+            df = df["Close"].copy()
+        else:
+            for field in ("Adj Close", "Close"):
+                if field in df.columns.levels[0]:
+                    df = df[field].copy()
+                    break
+        df.columns.name = None
+        return df
+
+    new_cols = []
+    for c in df.columns:
+        if isinstance(c, tuple):
+            c = c[-1]
+        name = str(c).replace(" Adj Close", "").replace(" Close", "").strip()
+        new_cols.append(name)
+    df = df.copy()
+    df.columns = new_cols
+    return df
+
+
+def _yf_to_wide(raw: pd.DataFrame, tickers: List[str]) -> pd.DataFrame:
+    """
+    Convert yfinance download to a 2D wide frame of Close prices, columns=tickers.
+    Auto-adjusted 'Close' is fine for analytics. Handles single ticker shape too.
+    """
+    if raw is None or raw.empty:
+        return pd.DataFrame()
+    if isinstance(raw.columns, pd.MultiIndex):
+        if "Close" in raw.columns.levels[0]:
+            w = raw["Close"].copy()
+        else:
+            w = raw.xs(raw.columns.levels[0][0], axis=1, level=0)
+    else:
+        w = raw[["Close"]].copy()
+        w.columns = [tickers[0]]
+    w = _sanitize_columns(w)
+    if not isinstance(w.index, pd.DatetimeIndex):
+        w.index = pd.to_datetime(w.index)
+    return w.sort_index()
+
+
+# ----------------------
+# Rebalancing & stats
+# ----------------------
 def get_rebalance_dates(prices: pd.DataFrame, freq: str) -> List[pd.Timestamp]:
-    """First available trading day ON/AFTER each period start."""
+    """First available trading day ON/AFTER each period start, including the first day."""
     if freq is None:
         return []
     idx = prices.index
@@ -112,30 +212,38 @@ def get_rebalance_dates(prices: pd.DataFrame, freq: str) -> List[pd.Timestamp]:
     else:
         return []
     aligned = []
+    # ensure first index is in
+    if len(idx):
+        aligned.append(idx[0])
     for d in candidates:
         pos = idx.searchsorted(d)
         if pos < len(idx):
             aligned.append(idx[pos])
-    return aligned
+    return sorted(set(aligned))
+
 
 def compute_equity_curve(prices: pd.DataFrame, weights: Dict[str, float], rebal_freq: str) -> pd.Series:
     """Portfolio equity curve with optional rebalancing."""
-    returns = prices.pct_change().fillna(0)
+    prices = prices.dropna(how="all")
+    returns = prices.pct_change().fillna(0.0)
     rebal_dates = set(get_rebalance_dates(prices, rebal_freq))
     pv = pd.Series(index=prices.index, dtype=float)
+    if len(prices.index) == 0:
+        return pv
     pv.iloc[0] = 1.0
     current = weights.copy()
     for i in range(1, len(prices)):
         d = prices.index[i]
         if rebal_freq is not None and d in rebal_dates:
             current = weights.copy()
-        port_ret = sum(current.get(t, 0) * returns.iloc[i][t] for t in weights if t in returns.columns)
-        pv.iloc[i] = pv.iloc[i-1] * (1 + port_ret)
+        port_ret = sum(current.get(t, 0) * returns.iloc[i].get(t, 0.0) for t in weights)
+        pv.iloc[i] = pv.iloc[i - 1] * (1 + port_ret)
         if rebal_freq is None or d not in rebal_dates:
-            tot = sum(current.get(t, 0) * (1 + returns.iloc[i][t]) for t in weights if t in returns.columns)
+            tot = sum(current.get(t, 0) * (1 + returns.iloc[i].get(t, 0.0)) for t in weights)
             if tot > 0:
-                current = {t: current.get(t, 0) * (1 + returns.iloc[i][t]) / tot for t in weights if t in returns.columns}
+                current = {t: current.get(t, 0) * (1 + returns.iloc[i].get(t, 0.0)) / tot for t in weights}
     return pv
+
 
 def compute_weight_path(prices: pd.DataFrame, weights: Dict[str, float], rebal_freq: str) -> pd.DataFrame:
     """Actual weights each day under chosen rebalancing."""
@@ -160,37 +268,43 @@ def compute_weight_path(prices: pd.DataFrame, weights: Dict[str, float], rebal_f
         rows.append({t: (pos_values[t] / total_value if total_value > 0 else weights[t]) for t in tickers})
     return pd.DataFrame(rows, index=px.index, columns=tickers)
 
+
 def max_drawdown(series: pd.Series) -> Tuple[float, pd.Timestamp, pd.Timestamp]:
     cum_max = series.cummax()
     dd = (series - cum_max) / cum_max
     if dd.empty or dd.isna().all():
-        return 0.0, series.index[0], series.index[0]
+        return 0.0, (series.index[0] if len(series) else pd.NaT), (series.index[0] if len(series) else pd.NaT)
     trough = dd.idxmin()
     peak = series.loc[:trough].idxmax()
     return float(dd.min()), peak, trough
 
+
 def drawdown_series(series: pd.Series) -> pd.Series:
     return (series - series.cummax()) / series.cummax()
 
+
 def perf_stats(equity: pd.Series) -> Dict[str, float]:
     r = equity.pct_change().dropna()
-    if len(r) == 0:
+    if len(r) < 30:
         return {"CAGR": 0.0, "Ann. Vol": 0.0, "Sharpe": 0.0, "Max DD": 0.0}
     years = (equity.index[-1] - equity.index[0]).days / 365.25
-    cagr = (equity.iloc[-1] / equity.iloc[0]) ** (1/years) - 1 if years > 0 else 0.0
+    cagr = (equity.iloc[-1] / equity.iloc[0]) ** (1 / years) - 1 if years > 0 else 0.0
     vol = r.std() * np.sqrt(252)
     sharpe = (cagr / vol) if vol > 0 else 0.0
     mdd, _, _ = max_drawdown(equity)
     return {"CAGR": cagr, "Ann. Vol": vol, "Sharpe": sharpe, "Max DD": mdd}
 
+
 def tracking_error(port_r: pd.Series, bench_r: pd.Series) -> float:
     a = (port_r - bench_r).dropna()
     return a.std() * np.sqrt(252)
+
 
 def information_ratio(port_r: pd.Series, bench_r: pd.Series) -> float:
     a = (port_r - bench_r).dropna()
     te = a.std() * np.sqrt(252)
     return ((a.mean() * 252) / te) if te > 0 else 0.0
+
 
 def beta_corr(port_r: pd.Series, bench_r: pd.Series) -> Tuple[float, float]:
     df = pd.DataFrame({"port": port_r, "bench": bench_r}).dropna()
@@ -200,18 +314,31 @@ def beta_corr(port_r: pd.Series, bench_r: pd.Series) -> Tuple[float, float]:
     beta = cov.loc["port", "bench"] / cov.loc["bench", "bench"] if cov.loc["bench", "bench"] > 0 else 0.0
     return beta, df["port"].corr(df["bench"])
 
+
 # ----------------------
 # UI
 # ----------------------
 st.title("📊 Zorroh Portfolio Analyzer")
 st.caption("Build and analyze diversified ETF portfolios vs a benchmark")
 
+# Hint about cache/parquet
+if Path("data/prices.parquet").exists():
+    st.caption("⚡ Using precomputed data from `data/prices.parquet`. A nightly job can keep this fresh.")
+else:
+    st.caption("⏳ No precomputed parquet found; will fetch live data for selected tickers.")
+
 # 👉 Display controls (mobile optimization)
 st.sidebar.header("Display")
-compact = st.sidebar.toggle("📱 Compact (mobile) mode", value=False,
-                            help="Stacks layouts, shrinks chart heights & fonts for phones.")
-def H(desktop:int, mobile:int) -> int:
+compact = st.sidebar.toggle(
+    "📱 Compact (mobile) mode",
+    value=False,
+    help="Stacks layouts, shrinks chart heights & fonts for phones.",
+)
+
+
+def H(desktop: int, mobile: int) -> int:
     return mobile if compact else desktop
+
 
 # ----------------------
 # Sidebar: Portfolio Setup
@@ -223,12 +350,23 @@ for i in range(5):
     c1, c2 = st.sidebar.columns([3, 2])
     default_t = DEFAULT_HOLDINGS[i] if i < len(DEFAULT_HOLDINGS) else None
     default_w = DEFAULT_WEIGHTS[i] if i < len(DEFAULT_WEIGHTS) else 0
-    ticker = c1.selectbox(f"ETF {i+1}", options=[""] + ETF_UNIVERSE,
-                          index=ETF_UNIVERSE.index(default_t) + 1 if default_t else 0, key=f"ticker_{i}")
-    weight = c2.number_input("Wt %", min_value=0.0, max_value=100.0, value=float(default_w),
-                             step=1.0, key=f"weight_{i}")
+    ticker = c1.selectbox(
+        f"ETF {i + 1}",
+        options=[""] + ETF_UNIVERSE,
+        index=ETF_UNIVERSE.index(default_t) + 1 if default_t else 0,
+        key=f"ticker_{i}",
+    )
+    weight = c2.number_input(
+        "Wt %",
+        min_value=0.0,
+        max_value=100.0,
+        value=float(default_w),
+        step=1.0,
+        key=f"weight_{i}",
+    )
     if ticker:
-        holdings.append(ticker); weights_input.append(weight)
+        holdings.append(ticker)
+        weights_input.append(weight)
 
 st.sidebar.subheader("Benchmark")
 benchmark = st.sidebar.selectbox("Benchmark ETF", ETF_UNIVERSE, index=ETF_UNIVERSE.index(DEFAULT_BENCHMARK))
@@ -238,10 +376,10 @@ rebal_choice = st.sidebar.selectbox("Frequency", list(REBALANCE_OPTIONS.keys()),
 rebal_freq = REBALANCE_OPTIONS[rebal_choice]
 
 st.sidebar.subheader("Date Range")
-default_start = dt.date.today() - dt.timedelta(days=365*5)
+default_start = dt.date.today() - dt.timedelta(days=365 * 5)
 default_end = dt.date.today()
 start_date = st.sidebar.date_input("Start", value=default_start)
-end_date   = st.sidebar.date_input("End", value=default_end)
+end_date = st.sidebar.date_input("End", value=default_end)
 
 st.sidebar.markdown("---")
 total_weight = sum(weights_input)
@@ -257,27 +395,31 @@ if abs(total_weight - 100) > 0.1 and total_weight > 0:
 # Data
 # ----------------------
 if len(holdings) < 1:
-    st.warning("⚠️ Please select at least 1 ETF to analyze."); st.stop()
-if abs(total_weight - 100) > 5.0:
+    st.warning("⚠️ Please select at least 1 ETF to analyze.")
+    st.stop()
+if abs(total_weight - 100) > 5.0 and total_weight > 0:
     st.warning(f"⚠️ Weights sum to {total_weight:.1f}%. Please normalize or adjust to ≈100%.")
 
 all_tickers = list(set(holdings + [benchmark]))
 with st.spinner("Loading price data..."):
     prices = load_prices(all_tickers, start_date, end_date)
 if prices.empty:
-    st.error("❌ No price data loaded. Check tickers and date range."); st.stop()
+    st.error("❌ No price data loaded. Check tickers and date range.")
+    st.stop()
 
 missing = set(all_tickers) - set(prices.columns)
 if missing:
-    st.warning(f"⚠️ Missing data for: {', '.join(missing)}")
+    st.warning(f"⚠️ Missing data for: {', '.join(sorted(missing))}")
 
 holdings_available = [h for h in holdings if h in prices.columns]
 if not holdings_available:
-    st.error("❌ None of the selected holdings have valid data."); st.stop()
+    st.error("❌ None of the selected holdings have valid data.")
+    st.stop()
 if benchmark not in prices.columns:
-    st.error(f"❌ Benchmark {benchmark} has no valid data."); st.stop()
+    st.error(f"❌ Benchmark {benchmark} has no valid data.")
+    st.stop()
 
-weights_dict = {}
+weights_dict: Dict[str, float] = {}
 valid_weights = [weights_input[i] for i, h in enumerate(holdings) if h in holdings_available]
 tot_valid = sum(valid_weights)
 if tot_valid > 0:
@@ -285,7 +427,8 @@ if tot_valid > 0:
         original_idx = holdings.index(t)
         weights_dict[t] = weights_input[original_idx] / tot_valid
 else:
-    st.error("❌ Total weight is zero."); st.stop()
+    st.error("❌ Total weight is zero.")
+    st.stop()
 
 # ----------------------
 # Compute
@@ -293,14 +436,20 @@ else:
 with st.spinner("Computing portfolio performance..."):
     port_equity = compute_equity_curve(prices[holdings_available], weights_dict, rebal_freq)
     bench_equity = prices[benchmark] / prices[benchmark].iloc[0]
-    combined = pd.DataFrame({'Portfolio': port_equity, 'Benchmark': bench_equity}).dropna()
-    if combined.empty:
-        st.error("❌ No overlapping data between portfolio and benchmark."); st.stop()
-    port_r  = combined['Portfolio'].pct_change().dropna()
-    bench_r = combined['Benchmark'].pct_change().dropna()
+    combined = pd.DataFrame({"Portfolio": port_equity, "Benchmark": bench_equity}).dropna()
 
-port_stats = perf_stats(combined['Portfolio'])
-bench_stats = perf_stats(combined['Benchmark'])
+if combined.shape[0] < 5:
+    st.error("Not enough overlapping data to compute stats. Try a wider date range.")
+    st.stop()
+
+port_r = combined["Portfolio"].pct_change().dropna()
+bench_r = combined["Benchmark"].pct_change().dropna()
+if len(port_r) < 5 or len(bench_r) < 5:
+    st.error("Insufficient data points for risk stats. Try a wider date range.")
+    st.stop()
+
+port_stats = perf_stats(combined["Portfolio"])
+bench_stats = perf_stats(combined["Benchmark"])
 te = tracking_error(port_r, bench_r)
 ir = information_ratio(port_r, bench_r)
 beta, corr_coef = beta_corr(port_r, bench_r)
@@ -313,33 +462,53 @@ beta, corr_coef = beta_corr(port_r, bench_r)
 st.subheader("📈 Cumulative Performance (%)")
 cum_pct = combined.subtract(1.0)
 cum_fig = go.Figure()
-cum_fig.add_trace(go.Scatter(x=cum_pct.index, y=cum_pct['Portfolio'], name='Portfolio',
-                             line=dict(color='#2ecc71', width=2.5),
-                             hovertemplate='%{y:.2%}<extra>Portfolio</extra>'))
-cum_fig.add_trace(go.Scatter(x=cum_pct.index, y=cum_pct['Benchmark'], name=benchmark,
-                             line=dict(color='#3498db', width=2),
-                             hovertemplate='%{y:.2%}<extra>'+benchmark+'</extra>'))
+cum_fig.add_trace(
+    go.Scatter(
+        x=cum_pct.index,
+        y=cum_pct["Portfolio"],
+        name="Portfolio",
+        line=dict(color="#2ecc71", width=2.5),
+        hovertemplate="%{y:.2%}<extra>Portfolio</extra>",
+    )
+)
+cum_fig.add_trace(
+    go.Scatter(
+        x=cum_pct.index,
+        y=cum_pct["Benchmark"],
+        name=benchmark,
+        line=dict(color="#3498db", width=2),
+        hovertemplate="%{y:.2%}<extra>" + benchmark + "</extra>",
+    )
+)
 cum_fig.update_layout(
-    height=H(450, 320), hovermode='x unified',
-    yaxis_title='Cumulative Return (%)', xaxis_title='Date',
+    height=H(450, 320),
+    hovermode="x unified",
+    yaxis_title="Cumulative Return (%)",
+    xaxis_title="Date",
     margin=dict(l=10, r=10, t=30, b=10),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
 )
 cum_fig.update_yaxes(tickformat=".0%")
 st.plotly_chart(cum_fig, use_container_width=True)
 
 # 2) Rolling 1-Year Volatility
 st.subheader("📊 Rolling 1-Year Volatility (%)")
-port_roll_vol  = port_r.rolling(252).std() * np.sqrt(252) * 100
+port_roll_vol = port_r.rolling(252).std() * np.sqrt(252) * 100
 bench_roll_vol = bench_r.rolling(252).std() * np.sqrt(252) * 100
 vol_fig = go.Figure()
-vol_fig.add_trace(go.Scatter(x=port_roll_vol.index,  y=port_roll_vol,  name='Portfolio', line=dict(color='#9b59b6')))
-vol_fig.add_trace(go.Scatter(x=bench_roll_vol.index, y=bench_roll_vol, name=benchmark,  line=dict(color='#34495e')))
+vol_fig.add_trace(
+    go.Scatter(x=port_roll_vol.index, y=port_roll_vol, name="Portfolio", line=dict(color="#9b59b6"))
+)
+vol_fig.add_trace(
+    go.Scatter(x=bench_roll_vol.index, y=bench_roll_vol, name=benchmark, line=dict(color="#34495e"))
+)
 vol_fig.update_layout(
-    height=H(350, 280), hovermode='x unified',
-    yaxis_title='Annualized Volatility (%)', xaxis_title='Date',
+    height=H(350, 280),
+    hovermode="x unified",
+    yaxis_title="Annualized Volatility (%)",
+    xaxis_title="Date",
     margin=dict(l=10, r=10, t=30, b=10),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
 )
 st.plotly_chart(vol_fig, use_container_width=True)
 
@@ -360,7 +529,8 @@ with cols[0]:
 if not compact:
     c2, c3 = cols[1], cols[2]
 else:
-    c2 = st.container(); c3 = st.container()
+    c2 = st.container()
+    c3 = st.container()
 
 with c2:
     st.markdown(f"**Benchmark ({benchmark})**")
@@ -384,6 +554,7 @@ include_bench = c2.checkbox("Include benchmark in matrix", value=True)
 corr_tickers = holdings_available.copy()
 if include_bench and benchmark not in corr_tickers:
     corr_tickers.append(benchmark)
+
 rets_all = prices[corr_tickers].pct_change().dropna()
 if window_choice == "1Y (252d)" and len(rets_all) > 252:
     rets = rets_all.iloc[-252:].copy()
@@ -391,26 +562,42 @@ elif window_choice == "3Y (756d)" and len(rets_all) > 756:
     rets = rets_all.iloc[-756:].copy()
 else:
     rets = rets_all
+
 if rets.shape[1] >= 2 and not rets.empty:
     corr = rets.corr().round(2)
-    heat = go.Figure(data=go.Heatmap(
-        z=corr.values, x=corr.columns, y=corr.index,
-        colorscale=[
-            [0.0, "#0b3d91"], [0.25, "#146b8a"],
-            [0.5, "#1b8c72"], [0.75, "#3fa37a"], [1.0, "#9fd5a2"]
-        ],
-        zmin=-1, zmax=1, zmid=0, colorbar=dict(title="ρ"),
-        hovertemplate='%{x} ↔ %{y}<br>ρ = %{z:.2f}<extra></extra>'
-    ))
+    heat = go.Figure(
+        data=go.Heatmap(
+            z=corr.values,
+            x=corr.columns,
+            y=corr.index,
+            colorscale=[
+                [0.0, "#0b3d91"],
+                [0.25, "#146b8a"],
+                [0.5, "#1b8c72"],
+                [0.75, "#3fa37a"],
+                [1.0, "#9fd5a2"],
+            ],
+            zmin=-1,
+            zmax=1,
+            zmid=0,
+            colorbar=dict(title="ρ"),
+            hovertemplate="%{x} ↔ %{y}<br>ρ = %{z:.2f}<extra></extra>",
+        )
+    )
     ann = []
     for i, r in enumerate(corr.index):
         for j, c in enumerate(corr.columns):
-            ann.append(dict(x=c, y=r, text=f"{corr.iloc[i, j]:.2f}", showarrow=False, font=dict(color="black")))
+            ann.append(
+                dict(x=c, y=r, text=f"{corr.iloc[i, j]:.2f}", showarrow=False, font=dict(color="black"))
+            )
     heat.update_layout(
         title="Correlation Matrix (Zorroh Palette)",
-        height=H(420, 320), margin=dict(l=10, r=10, t=40, b=10),
-        paper_bgcolor="#0e1117", plot_bgcolor="#0e1117", font=dict(color="white"),
-        annotations=ann
+        height=H(420, 320),
+        margin=dict(l=10, r=10, t=40, b=10),
+        paper_bgcolor="#0e1117",
+        plot_bgcolor="#0e1117",
+        font=dict(color="white"),
+        annotations=ann,
     )
     st.plotly_chart(heat, use_container_width=True)
     st.caption(f"As of {rets.index[-1].date()} — window: **{window_choice}**")
@@ -420,63 +607,87 @@ else:
 
 # 5) Drawdowns
 st.subheader("📉 Drawdowns")
-port_dd = drawdown_series(combined['Portfolio'])
-bench_dd = drawdown_series(combined['Benchmark'])
+port_dd = drawdown_series(combined["Portfolio"])
+bench_dd = drawdown_series(combined["Benchmark"])
 dd_fig = go.Figure()
-dd_fig.add_trace(go.Scatter(x=port_dd.index, y=port_dd * 100, name='Portfolio', fill='tozeroy', line=dict(color='#e74c3c')))
-dd_fig.add_trace(go.Scatter(x=bench_dd.index, y=bench_dd * 100, name=benchmark,   fill='tozeroy', line=dict(color='#95a5a6')))
+dd_fig.add_trace(
+    go.Scatter(x=port_dd.index, y=port_dd * 100, name="Portfolio", fill="tozeroy", line=dict(color="#e74c3c"))
+)
+dd_fig.add_trace(
+    go.Scatter(x=bench_dd.index, y=bench_dd * 100, name=benchmark, fill="tozeroy", line=dict(color="#95a5a6"))
+)
 dd_fig.update_layout(
-    height=H(350, 280), hovermode='x unified',
-    yaxis_title='Drawdown (%)', xaxis_title='Date',
+    height=H(350, 280),
+    hovermode="x unified",
+    yaxis_title="Drawdown (%)",
+    xaxis_title="Date",
     margin=dict(l=10, r=10, t=30, b=10),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
 )
 st.plotly_chart(dd_fig, use_container_width=True)
 
 # 6) Allocation (stack on mobile)
 st.subheader("🥧 Portfolio Allocation")
 if compact:
-    col_pie = st.container(); col_table = st.container()
+    col_pie = st.container()
+    col_table = st.container()
 else:
     col_pie, col_table = st.columns([1, 1])
 
 with col_pie:
-    pie_df = pd.DataFrame({'Ticker': list(weights_dict.keys()),
-                           'Weight': [w * 100 for w in weights_dict.values()]})
-    pie_fig = px.pie(pie_df, values='Weight', names='Ticker', title='Target Allocation', hole=0.4)
-    pie_fig.update_traces(textposition='inside', textinfo='percent+label')
+    pie_df = pd.DataFrame({"Ticker": list(weights_dict.keys()), "Weight": [w * 100 for w in weights_dict.values()]})
+    pie_fig = px.pie(pie_df, values="Weight", names="Ticker", title="Target Allocation", hole=0.4)
+    pie_fig.update_traces(textposition="inside", textinfo="percent+label")
     pie_fig.update_layout(height=H(400, 320), margin=dict(l=10, r=10, t=40, b=10))
     st.plotly_chart(pie_fig, use_container_width=True)
 
 with col_table:
     st.markdown("**Current Weights**")
     weights_path = compute_weight_path(prices[holdings_available], weights_dict, rebal_freq)
-    current_weights = weights_path.iloc[-1].to_dict()
-    wt = pd.DataFrame({
-        'Ticker': list(weights_dict.keys()),
-        'Target (%)': [w * 100 for w in weights_dict.values()],
-        'Current (%)': [current_weights.get(t, 0) * 100 for t in weights_dict.keys()],
-    })
-    wt['Drift (%)'] = wt['Current (%)'] - wt['Target (%)']
+    current_weights = weights_path.iloc[-1].to_dict() if len(weights_path) else {}
+    wt = pd.DataFrame(
+        {
+            "Ticker": list(weights_dict.keys()),
+            "Target (%)": [w * 100 for w in weights_dict.values()],
+            "Current (%)": [current_weights.get(t, 0) * 100 for t in weights_dict.keys()],
+        }
+    )
+    wt["Drift (%)"] = wt["Current (%)"] - wt["Target (%)"]
 
     def _drift_style(col: pd.Series):
         styles = []
         for v in col:
-            if pd.isna(v): styles.append("")
-            elif v < -0.25: styles.append("background-color:#1e8449; color:white;")
-            elif v < -0.10: styles.append("background-color:#27ae60; color:white;")
-            elif v >  0.25: styles.append("background-color:#c0392b; color:white;")
-            elif v >  0.10: styles.append("background-color:#e74c3c; color:white;")
-            else: styles.append("")
+            if pd.isna(v):
+                styles.append("")
+            elif v < -0.25:
+                styles.append("background-color:#1e8449; color:white;")
+            elif v < -0.10:
+                styles.append("background-color:#27ae60; color:white;")
+            elif v > 0.25:
+                styles.append("background-color:#c0392b; color:white;")
+            elif v > 0.10:
+                styles.append("background-color:#e74c3c; color:white;")
+            else:
+                styles.append("")
         return styles
 
-    styled = (wt.style
-              .format({'Target (%)': '{:.1f}', 'Current (%)': '{:.1f}', 'Drift (%)': '{:.1f}'})
-              .apply(_drift_style, subset=['Drift (%)']))
-    st.dataframe(styled, use_container_width=True, hide_index=True)
+    styled = (
+        wt.style.format({"Target (%)": "{:.1f}", "Current (%)": "{:.1f}", "Drift (%)": "{:.1f}"}).apply(
+            _drift_style, subset=["Drift (%)"]
+        )
+    )
+    try:
+        st.dataframe(styled, use_container_width=True, hide_index=True)
+    except Exception:
+        st.dataframe(
+            wt.style.format({"Target (%)": "{:.1f}", "Current (%)": "{:.1f}", "Drift (%)": "{:.1f}"}),
+            use_container_width=True,
+            hide_index=True,
+        )
 
     st.markdown("**🎨 Drift Color Legend**")
-    st.markdown("""
+    st.markdown(
+        """
     <table style="width:100%; border-collapse: collapse; text-align:left;">
       <tr><th style="padding:6px; border-bottom:1px solid #ddd;">Color</th>
           <th style="padding:6px; border-bottom:1px solid #ddd;">Meaning</th></tr>
@@ -491,7 +702,9 @@ with col_table:
       <tr><td style="background-color:#f4f6f6; color:black; padding:6px;">None</td>
           <td style="padding:6px;">Near target (within ±10%)</td></tr>
     </table>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
 # ----------------------
 # ETF Reference
@@ -504,7 +717,7 @@ ETF_CATALOG = {
     "EFA": ("iShares MSCI EAFE ETF", "https://www.blackrock.com/ae/intermediaries/products/239623/ishares-msci-eafe-etf"),
     "EEM": ("iShares MSCI Emerging Markets ETF", "https://www.ishares.com/us/products/239637/eem-ishares-msci-emerging-markets-etf"),
     "AGG": ("iShares Core U.S. Aggregate Bond ETF", "https://www.ishares.com/us/products/239458/ishares-core-us-aggregate-bond-etf"),
-    "BND": ("Vanguard Total Bond Market ETF", "https://investor.vanguard.com/investment-products/etfs/profile/bnd"),
+    "BND": ("Vanguard Total Bond Market ETF", "https://www.morningstar.com/etfs/xnas/bnd/portfolio"),
     "LQD": ("iShares iBoxx $ Investment Grade Corporate Bond ETF", "https://www.ishares.com/us/products/239566/lqd-ishares-iboxx-investment-grade-corporate-bond-etf"),
     "HYG": ("iShares iBoxx $ High Yield Corporate Bond ETF", "https://www.ishares.com/us/products/239565/hyg-ishares-iboxx-high-yield-corporate-bond-etf"),
     "TLT": ("iShares 20+ Year Treasury Bond ETF", "https://www.ishares.com/us/products/239454/ishares-20-year-treasury-bond-etf"),
