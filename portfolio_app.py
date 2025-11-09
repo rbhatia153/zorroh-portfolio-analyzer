@@ -849,6 +849,50 @@ with tabs[1]:
         with c4:
             avg_sh = risk["Sharpe"].mean() if not risk.empty else 0
             st.metric("Avg Sharpe", f"{avg_sh:.2f}")
+# ----------------------
+# ETF Reference
+# ----------------------
+st.markdown("### 📚 ETF Reference (Universe)")
+ETF_CATALOG = {
+    "SPY": ("SPDR S&P 500 ETF Trust", "https://www.ssga.com/us/en/intermediary/etfs/spdr-sp-500-etf-trust-spy"),
+    "QQQ": ("Invesco QQQ Trust", "https://www.invesco.com/us/financial-products/etfs/product-detail?productId=QQQ"),
+    "IWM": ("iShares Russell 2000 ETF", "https://www.ishares.com/us/products/239710/iwm-ishares-russell-2000-etf"),
+    "EFA": ("iShares MSCI EAFE ETF", "https://www.ishares.com/us/products/239612/efa-ishares-msci-eafe-etf"),
+    "EFA": ("iShares MSCI EAFE ETF", "https://www.blackrock.com/ae/intermediaries/products/239623/ishares-msci-eafe-etf"),
+    "EEM": ("iShares MSCI Emerging Markets ETF", "https://www.ishares.com/us/products/239637/eem-ishares-msci-emerging-markets-etf"),
+    "AGG": ("iShares Core U.S. Aggregate Bond ETF", "https://www.ishares.com/us/products/239458/ishares-core-us-aggregate-bond-etf"),
+    "BND": ("Vanguard Total Bond Market ETF", "https://investor.vanguard.com/investment-products/etfs/profile/bnd"),
+    "LQD": ("iShares iBoxx $ Investment Grade Corporate Bond ETF", "https://www.ishares.com/us/products/239566/lqd-ishares-iboxx-investment-grade-corporate-bond-etf"),
+    "HYG": ("iShares iBoxx $ High Yield Corporate Bond ETF", "https://www.ishares.com/us/products/239565/hyg-ishares-iboxx-high-yield-corporate-bond-etf"),
+    "TLT": ("iShares 20+ Year Treasury Bond ETF", "https://www.ishares.com/us/products/239454/ishares-20-year-treasury-bond-etf"),
+    "IEF": ("iShares 7-10 Year Treasury Bond ETF", "https://www.ishares.com/us/products/239455/ishares-710-year-treasury-bond-etf"),
+    "GLD": ("SPDR Gold Shares", "https://www.spdrgoldshares.com/usa/"),
+    "SLV": ("iShares Silver Trust", "https://www.ishares.com/us/products/239855/ishares-silver-trust-fund"),
+    "DBC": ("Invesco DB Commodity Index Tracking Fund", "https://www.invesco.com/us/financial-products/etfs/product-detail?productId=DBC"),
+    "VNQ": ("Vanguard Real Estate ETF", "https://investor.vanguard.com/investment-products/etfs/profile/vnq"),
+    "XLB": ("Materials Select Sector SPDR Fund", "https://www.ssga.com/us/en/etfs/funds/the-materials-select-sector-spdr-fund-xlb"),
+    "XLE": ("Energy Select Sector SPDR Fund", "https://www.ssga.com/us/en/etfs/funds/the-energy-select-sector-spdr-fund-xle"),
+    "XLF": ("Financial Select Sector SPDR Fund", "https://www.ssga.com/us/en/etfs/funds/the-financial-select-sector-spdr-fund-xlf"),
+    "XLI": ("Industrial Select Sector SPDR Fund", "https://www.ssga.com/us/en/etfs/funds/the-industrial-select-sector-spdr-fund-xli"),
+    "XLK": ("Technology Select Sector SPDR Fund", "https://www.ssga.com/us/en/etfs/funds/technology-select-sector-spdr-fund-xlk"),
+    "XLP": ("Consumer Staples Select Sector SPDR Fund", "https://www.ssga.com/us/en/etfs/funds/the-consumer-staples-select-sector-spdr-fund-xlp"),
+    "XLRE": ("Real Estate Select Sector SPDR Fund", "https://www.ssga.com/us/en/etfs/funds/the-real-estate-select-sector-spdr-fund-xlre"),
+    "XLU": ("Utilities Select Sector SPDR Fund", "https://www.ssga.com/us/en/etfs/funds/the-utilities-select-sector-spdr-fund-xlu"),
+    "XLV": ("Health Care Select Sector SPDR Fund", "https://www.ssga.com/us/en/etfs/funds/the-health-care-select-sector-spdr-fund-xlv"),
+    "XLY": ("Consumer Discretionary Select Sector SPDR Fund", "https://www.ssga.com/us/en/etfs/funds/the-consumer-discretionary-select-sector-spdr-fund-xly"),
+}
+def render_etf_catalog(etf_map: dict):
+    rows = []
+    for t, (name, url) in etf_map.items():
+        label = f"[{name}]({url})" if url else name
+        rows.append({"Ticker": t, "Name / Page": label})
+    df = pd.DataFrame(rows).sort_values("Ticker")
+    md = "| Ticker | Name / Page |\n|---|---|\n"
+    for _, r in df.iterrows():
+        md += f"| {r['Ticker']} | {r['Name / Page']} |\n"
+    st.markdown(md, unsafe_allow_html=True)
+render_etf_catalog(ETF_CATALOG)
+
 
 # ----------------------
 # Footer + Disclosures
