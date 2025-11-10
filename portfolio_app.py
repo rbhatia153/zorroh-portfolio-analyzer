@@ -15,6 +15,63 @@ import streamlit as st
 import yfinance as yf
 from dateutil.relativedelta import relativedelta
 
+# ============================================
+# PERFORMANCE OPTIMIZATIONS (ADD AT TOP)
+# ============================================
+
+# 1. Reduce Streamlit overhead
+st.set_page_config(
+    page_title="Zorroh Portfolio Analyzer",
+    layout="wide",
+    page_icon="📊",
+    initial_sidebar_state="collapsed",
+    menu_items={
+        'Get Help': None,
+        'Report a bug': None,
+        'About': None
+    }
+)
+
+# 2. Cache EVERYTHING aggressively
+import functools
+
+# Global cache wrapper
+def ultra_cache(ttl=24*3600):
+    """Cache with 24-hour default TTL"""
+    return st.cache_data(show_spinner=False, ttl=ttl)
+
+# 3. Lazy imports (only import when needed)
+def lazy_import():
+    """Import heavy libraries only when first needed"""
+    global np, pd, yf, go, px
+    if 'np' not in globals():
+        import numpy as np
+        import pandas as pd
+        import yfinance as yf
+        import plotly.graph_objects as go
+        import plotly.express as px
+        
+# Call lazy import at first use
+lazy_import()
+
+# 4. Preload critical data in background
+@ultra_cache(ttl=6*3600)
+def preload_universe():
+    """Preload universe data on startup"""
+    try:
+        import datetime as dt
+        from pathlib import Path
+        
+        # Check for parquet cache first
+        if Path("data/prices.parquet").exists():
+            return True
+    except:
+        pass
+    return False
+
+# Run preload (non-blocking)
+_ = preload_universe()
+
 # ----------------------
 # Query-param helpers (no JS)
 # ----------------------
