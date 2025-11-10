@@ -523,7 +523,7 @@ st.caption("Build and analyze diversified ETF portfolios vs a benchmark")
 with st.expander("🧭 How to Use the Portfolio Analyzer", expanded=True):
     st.markdown("""
 1. **Select your ETFs**  
-   Open the sidebar (📱 tap the ≡ icon on mobile) and pick up to 5 ETFs- e.g. SPY, EFA, AGG, VNQ, GLD.  
+   Open the sidebar (tap the >> icon on the top left) and pick up to 5 ETFs- e.g. SPY, EFA, AGG, VNQ, GLD.  
    Adjust weights so they total ~100%. Click **Normalize Weights** if needed.
 
 2. **Choose a Benchmark**  
