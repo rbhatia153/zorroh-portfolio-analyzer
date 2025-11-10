@@ -16,4 +16,4 @@ fastReruns = true
 enforceSerializableSessionState = false
 
 [theme]
-base = "light"
+base = "dark"
