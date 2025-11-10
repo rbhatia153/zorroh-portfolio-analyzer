@@ -520,6 +520,36 @@ def load_universe_prices(start: dt.date, end: dt.date) -> pd.DataFrame:
 st.title("📊 Zorroh Portfolio Analyzer")
 st.caption("Build and analyze diversified ETF portfolios vs a benchmark")
 
+with st.expander("🧭 How to Use the Portfolio Analyzer", expanded=True):
+    st.markdown("""
+1. **Select your ETFs**  
+   Open the sidebar (📱 tap the ≡ icon on mobile) and pick up to 5 ETFs — e.g. SPY, EFA, AGG, VNQ, GLD.  
+   Adjust weights so they total ~100%. Click **Normalize Weights** if needed.
+
+2. **Choose a Benchmark**  
+   Compare your portfolio against a reference ETF (SPY by default).
+
+3. **Pick a Date Range**  
+   The analyzer supports up to 10+ years of history depending on the ETF.
+
+4. **Select a Rebalancing Frequency**  
+   Choose how often to reset weights (monthly, quarterly, annually, or buy-and-hold).
+
+5. **Run the Analysis**  
+   Charts update automatically — view cumulative performance, rolling volatility, correlations, and drawdowns.
+
+6. **Interpret Results**  
+   - **CAGR / Sharpe / Max DD**: Assess risk-adjusted performance.  
+   - **Tracking Error / Information Ratio**: Evaluate active performance vs benchmark.  
+   - **Correlation Matrix**: Spot diversification benefits.  
+   - **Drawdowns**: Understand downside risk.
+
+7. **Switch to ‘ETF Performance’ Tab**  
+   Explore returns, risk metrics, and calendar-year heatmaps for all ETFs.
+   """)
+
+    st.info("💡 Tip: On mobile, tap the top-left ≡ icon to open the sidebar and design your portfolio.")
+
 tabs = st.tabs(["📊 Analyzer", "📈 ETF Performance"])
 
 
