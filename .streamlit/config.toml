@@ -1,0 +1,19 @@
+[server]
+enableCORS = false
+enableXsrfProtection = false
+maxUploadSize = 10
+enableWebsocketCompression = true
+
+[browser]
+gatherUsageStats = false
+
+[client]
+caching = true
+displayEnabled = true
+
+[runner]
+fastReruns = true
+enforceSerializableSessionState = false
+
+[theme]
+base = "light"
