@@ -32,6 +32,19 @@ st.set_page_config(
     }
 )
 
+# --- SEO META TAGS ---
+st.markdown("""
+    <meta name="description" content="Analyze and optimize your ETF portfolio with Zorroh's Portfolio Analyzer. Visualize diversification, risk, correlations, expected returns, and more. Free, fast, and beginner-friendly.">
+    <meta name="keywords" content="portfolio analyzer, ETF diversification, investment tool, risk analysis, portfolio optimization, zorroh">
+    
+    <!-- Open Graph (LinkedIn / WhatsApp / Facebook / iMessage) -->
+    <meta property="og:title" content="Zorroh Portfolio Analyzer" />
+    <meta property="og:description" content="A free ETF portfolio builder and diversification tool that helps you understand risk, return, and correlations in seconds." />
+    <meta property="og:url" content="https://analyzer.zorroh.com" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://zorroh.com/wp-content/uploads/2025/10/ChatGPT-Image-Oct-7-2025-at-08_56_29-PM.webp" />
+""", unsafe_allow_html=True)
+
 # 2. Cache EVERYTHING aggressively
 import functools
 
