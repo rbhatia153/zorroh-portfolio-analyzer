@@ -1,21 +1,4 @@
-
-#Zorroh Portfolio Analyzer — Analyzer + ETF Performance
-#Run: streamlit run portfolio_app.py
-
-
-import datetime as dt
-from pathlib import Path
-from typing import List, Tuple, Dict
-
-import numpy as np
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
-import yfinance as yf
-from dateutil.relativedelta import relativedelta
-
-# 1. Reduce Streamlit overhead
 st.set_page_config(
     page_title="Zorroh Portfolio Analyzer",
     layout="wide",
@@ -31,15 +14,30 @@ st.set_page_config(
 GA4_ID = "G-3M1MD0Z1BJ"
 
 st.markdown(f"""
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id={GA4_ID}"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){{dataLayer.push(arguments);}}
-  gtag('js', new Date());
-  gtag('config', '{GA4_ID}', {{ 'send_page_view': true }});
-</script>
+<head>
+  <script async src="https://www.googletagmanager.com/gtag/js?id={GA4_ID}"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){{dataLayer.push(arguments);}}
+    gtag('js', new Date());
+    gtag('config', '{GA4_ID}', {{ 'debug_mode': true, 'send_page_view': true }});
+  </script>
+</head>
 """, unsafe_allow_html=True)
+
+import datetime as dt
+from pathlib import Path
+from typing import List, Tuple, Dict
+
+import numpy as np
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import yfinance as yf
+from dateutil.relativedelta import relativedelta
+
+# 1. Reduce Streamlit overhead
+
 
 # --- SEO META TAGS ---
 st.markdown("""
@@ -927,7 +925,7 @@ with tabs[1]:
 
         # ---- Calendar Year Returns
         st.markdown("### 📅 Calendar Year Returns")
-        st.caption("Annual heatmap highlights rotation between asset classes — darker = stronger signal.")
+        st.caption("Annual heatmap highlights the degree of negative/positive returns")
         cal = calendar_year_returns(prices_univ)
         if not cal.empty:
             # Order columns: YTD, then years descending (latest→2010)
