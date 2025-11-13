@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 st.set_page_config(
     page_title="Zorroh Portfolio Analyzer",
     layout="wide",
@@ -13,17 +14,22 @@ st.set_page_config(
 # --- GA4 tracking for analyzer.zorroh.com ---
 GA4_ID = "G-3M1MD0Z1BJ"
 
-st.markdown(f"""
-<head>
-  <script async src="https://www.googletagmanager.com/gtag/js?id={GA4_ID}"></script>
-  <script>
-    window.dataLayer = window.dataLayer || [];
-    function gtag(){{dataLayer.push(arguments);}}
-    gtag('js', new Date());
-    gtag('config', '{GA4_ID}', {{ 'debug_mode': true, 'send_page_view': true }});
-  </script>
-</head>
-""", unsafe_allow_html=True)
+components.html(
+    f"""
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id={GA4_ID}"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){{dataLayer.push(arguments);}}
+      gtag('js', new Date());
+      gtag('config', '{GA4_ID}', {{
+        send_page_view: true
+      }});
+    </script>
+    """,
+    height=0,
+    width=0
+)
 
 import datetime as dt
 from pathlib import Path
