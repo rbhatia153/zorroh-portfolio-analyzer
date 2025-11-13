@@ -13,7 +13,6 @@ st.set_page_config(
 )
 # --- GA4 tracking for analyzer.zorroh.com ---
 GA4_ID = "G-3M1MD0Z1BJ"
-
 components.html(
     f"""
     <!-- Google tag (gtag.js) -->
