@@ -1,7 +1,7 @@
-"""
-📊 Zorroh Portfolio Analyzer — Analyzer + ETF Performance
-Run: streamlit run portfolio_app.py
-"""
+
+#Zorroh Portfolio Analyzer — Analyzer + ETF Performance
+#Run: streamlit run portfolio_app.py
+
 
 import datetime as dt
 from pathlib import Path
@@ -15,10 +15,6 @@ import streamlit as st
 import yfinance as yf
 from dateutil.relativedelta import relativedelta
 
-# ============================================
-# PERFORMANCE OPTIMIZATIONS (ADD AT TOP)
-# ============================================
-
 # 1. Reduce Streamlit overhead
 st.set_page_config(
     page_title="Zorroh Portfolio Analyzer",
@@ -31,6 +27,19 @@ st.set_page_config(
         'About': None
     }
 )
+# --- GA4 tracking for analyzer.zorroh.com ---
+GA4_ID = "G-3M1MD0Z1BJ"
+
+st.markdown(f"""
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id={GA4_ID}"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){{dataLayer.push(arguments);}}
+  gtag('js', new Date());
+  gtag('config', '{GA4_ID}', {{ 'send_page_view': true }});
+</script>
+""", unsafe_allow_html=True)
 
 # --- SEO META TAGS ---
 st.markdown("""
