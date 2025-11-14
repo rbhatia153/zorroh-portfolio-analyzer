@@ -21,13 +21,14 @@ components.html(
       window.dataLayer = window.dataLayer || [];
       function gtag(){{dataLayer.push(arguments);}}
       gtag('js', new Date());
-      gtag('config', '{GA4_ID}', {{
-        send_page_view: true
-      }});
+      gtag('config', '{GA4_ID}', {{ send_page_view: true }});
     </script>
     """,
-    height=0,
-    width=0,
+    height=1,       # IMPORTANT — must not be 0
+    width=1,        # keep tiny but alive
+    scrolling=False,
+    key="ga4_loader"
+)
 )
 
 import datetime as dt
