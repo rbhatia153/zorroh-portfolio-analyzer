@@ -12,7 +12,7 @@ st.set_page_config(
     }
 )
 # --- GA4 tracking for analyzer.zorroh.com ---
-GA4_ID = "G-3M1MD0Z1BJ"
+GA4_ID = "G-LGNTBK3HJ6"
 components.html(
     f"""
     <!-- Google tag (gtag.js) -->
@@ -27,7 +27,7 @@ components.html(
     </script>
     """,
     height=0,
-    width=0
+    width=0,
 )
 
 import datetime as dt
