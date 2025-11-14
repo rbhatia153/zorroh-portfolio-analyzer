@@ -29,7 +29,7 @@ components.html(
     scrolling=False,
     key="ga4_loader"
 )
-)
+
 
 import datetime as dt
 from pathlib import Path
