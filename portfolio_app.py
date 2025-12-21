@@ -27,7 +27,6 @@ components.html(
     height=1,       # IMPORTANT — must not be 0
     width=1,        # keep tiny but alive
     scrolling=False,
-    key="ga4_loader"
 )
 
 
